@@ -78,8 +78,24 @@ class TextractEngine(OcrEngine):
 
             try:
                 response = client.detect_document_text(Document={"Bytes": image_bytes})
-            except (NoCredentialsError, ClientError, BotoCoreError) as e:
-                raise RuntimeError(f"AWS Textract request failed: {e}") from e
+            except NoCredentialsError as e:
+                raise RuntimeError(
+                    "AWS Textract auth failed: no credentials found. "
+                    "Set AWS profile or access key/secret in app settings."
+                ) from e
+            except ClientError as e:
+                err = e.response.get("Error", {}) if hasattr(e, "response") else {}
+                code = err.get("Code", "UnknownClientError")
+                msg = err.get("Message", str(e))
+                raise RuntimeError(
+                    f"AWS Textract request failed [{code}]: {msg}. "
+                    "Check region, credentials, and textract permissions."
+                ) from e
+            except BotoCoreError as e:
+                raise RuntimeError(
+                    f"AWS Textract connection/config error: {e}. "
+                    "Verify network access and AWS region."
+                ) from e
 
             lines = [
                 block.get("Text", "")

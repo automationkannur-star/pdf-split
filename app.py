@@ -256,6 +256,9 @@ with col_right:
                     "Out of memory during OCR. Try lower DPI, lower max image side, or smaller page range."
                 )
                 st.stop()
+            except Exception as e:
+                st.error(f"OCR failed: {e}")
+                st.stop()
             elapsed = time.perf_counter() - start
 
         st.success(f"Done in {elapsed:.2f}s (sum of pages {result.total_seconds:.2f}s).")
@@ -293,28 +296,32 @@ with col_right:
         if split_try_rotations and not local_hits:
             ok, reason = engine.is_available()
             if ok:
-                with st.spinner("No text hits found. Trying OCR with rotations..."):
-                    images = render_pdf_to_images(pdf_bytes, dpi=dpi, first_page=start_page, last_page=end_page)
-                    images = [resize_image_max_side(img, max_side=int(max_image_side)) for img in images]
-                    ocr_result = engine.extract_from_images(images, lang=lang.strip() or None, config=config)
-                    local_hits = find_keyword_page_indices(
-                        [p.text for p in ocr_result.pages],
-                        keyword,
-                        case_sensitive=split_case_sensitive,
-                    )
-                    if not local_hits:
-                        for i, _ in enumerate(ocr_result.pages):
-                            for angle in (90, 180, 270):
-                                rotated_img = images[i].rotate(angle, expand=True)
-                                rotated_result = engine.extract_from_images(
-                                    [rotated_img],
-                                    lang=lang.strip() or None,
-                                    config=config,
-                                )
-                                rotated_text = rotated_result.pages[0].text if rotated_result.pages else ""
-                                if _keyword_in_text(rotated_text, keyword, case_sensitive=split_case_sensitive):
-                                    local_hits.append(i)
-                                    break
+                try:
+                    with st.spinner("No text hits found. Trying OCR with rotations..."):
+                        images = render_pdf_to_images(pdf_bytes, dpi=dpi, first_page=start_page, last_page=end_page)
+                        images = [resize_image_max_side(img, max_side=int(max_image_side)) for img in images]
+                        ocr_result = engine.extract_from_images(images, lang=lang.strip() or None, config=config)
+                        local_hits = find_keyword_page_indices(
+                            [p.text for p in ocr_result.pages],
+                            keyword,
+                            case_sensitive=split_case_sensitive,
+                        )
+                        if not local_hits:
+                            for i, _ in enumerate(ocr_result.pages):
+                                for angle in (90, 180, 270):
+                                    rotated_img = images[i].rotate(angle, expand=True)
+                                    rotated_result = engine.extract_from_images(
+                                        [rotated_img],
+                                        lang=lang.strip() or None,
+                                        config=config,
+                                    )
+                                    rotated_text = rotated_result.pages[0].text if rotated_result.pages else ""
+                                    if _keyword_in_text(rotated_text, keyword, case_sensitive=split_case_sensitive):
+                                        local_hits.append(i)
+                                        break
+                except Exception as e:
+                    st.error(f"OCR fallback failed: {e}")
+                    st.stop()
 
                 local_hits = sorted(set(local_hits))
 
