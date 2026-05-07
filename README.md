@@ -24,6 +24,9 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+For Streamlit Cloud deployments, keep `requirements.txt` and `packages.txt` in repo root.
+`packages.txt` installs the system `tesseract-ocr` binary.
+
 3) Run the app
 
 ```bash
