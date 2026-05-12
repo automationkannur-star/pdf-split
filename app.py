@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
 import time
+from pathlib import Path
 from typing import Any
 
 import fitz
@@ -23,6 +26,53 @@ st.set_page_config(page_title="PDF OCR Playground", layout="wide")
 
 def _bytes_sha1(data: bytes) -> str:
     return hashlib.sha1(data).hexdigest()
+
+
+def _safe_filename_component(name: str) -> str:
+    base = name.rsplit(".", 1)[0] if "." in name else name
+    base = re.sub(r"[^\w\-]+", "_", base, flags=re.UNICODE).strip("_") or "document"
+    return base[:120]
+
+
+def write_ocr_extract_json(
+    output_dir: str,
+    *,
+    source_filename: str,
+    engine_id: str,
+    pdf_sha1_hex: str,
+    start_page_abs: int,
+    end_page_abs: int,
+    elapsed_seconds: float,
+    pages: list[Any],
+) -> str:
+    """
+    Write OCR pages and metadata to a JSON file under ``output_dir``.
+    Returns the absolute path of the written file.
+    """
+    root = Path(output_dir).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    stem = _safe_filename_component(source_filename)
+    out_name = f"{stem}__{engine_id}__{pdf_sha1_hex[:12]}.json"
+    out_path = root / out_name
+    payload = {
+        "schema_version": 1,
+        "source_file": source_filename,
+        "engine": engine_id,
+        "pdf_sha1": pdf_sha1_hex,
+        "page_range_1_indexed": {"start": start_page_abs + 1, "end": end_page_abs + 1},
+        "elapsed_seconds": round(elapsed_seconds, 3),
+        "pages": [
+            {
+                "page_index_in_batch": p.page_index,
+                "absolute_page_1_indexed": start_page_abs + p.page_index + 1,
+                "text": p.text,
+                "seconds": round(p.seconds, 4),
+            }
+            for p in pages
+        ],
+    }
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return str(out_path)
 
 
 st.title("PDF OCR Playground")
@@ -107,6 +157,14 @@ with st.sidebar:
     split_keyword = st.text_input("Split keyword", value="INVOICE NO")
     split_case_sensitive = st.checkbox("Case sensitive keyword match", value=False)
     split_try_rotations = st.checkbox("Try rotated pages for keyword detection", value=True)
+
+    st.subheader("OCR JSON export")
+    save_ocr_json = st.checkbox("Save OCR result as JSON to disk", value=False)
+    ocr_json_folder = st.text_input(
+        "Output folder for JSON",
+        value=os.environ.get("OCR_JSON_OUTPUT_DIR", "ocr_json_output"),
+        help="Absolute or relative path. Created if missing. Set OCR_JSON_OUTPUT_DIR env for a default.",
+    )
 
 
 def _parse_page_range(s: str) -> tuple[int | None, int | None, str | None]:
@@ -262,6 +320,24 @@ with col_right:
             elapsed = time.perf_counter() - start
 
         st.success(f"Done in {elapsed:.2f}s (sum of pages {result.total_seconds:.2f}s).")
+
+        if save_ocr_json and (ocr_json_folder or "").strip():
+            try:
+                written = write_ocr_extract_json(
+                    (ocr_json_folder or "").strip(),
+                    source_filename=upload.name,
+                    engine_id=engine.id,
+                    pdf_sha1_hex=pdf_hash,
+                    start_page_abs=start_page,
+                    end_page_abs=end_page,
+                    elapsed_seconds=elapsed,
+                    pages=result.pages,
+                )
+                st.info(f"OCR JSON saved to: `{written}`")
+            except OSError as e:
+                st.warning(f"Could not write OCR JSON to folder: {e}")
+        elif save_ocr_json:
+            st.warning("Set **Output folder for JSON** to save OCR results to disk.")
 
         st.download_button(
             "Download extracted text (.txt)",
