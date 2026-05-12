@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 from dataclasses import dataclass
 
@@ -28,6 +29,29 @@ def find_keyword_page_indices(
         if needle and needle in hay:
             hits.append(i)
     return hits
+
+
+def find_regex_page_indices(
+    page_texts: list[str],
+    pattern: str,
+    *,
+    flags: int = 0,
+) -> tuple[list[int], str | None]:
+    """
+    Return (0-based page indices within ``page_texts`` where ``pattern`` matches, error).
+    ``error`` is set if the pattern is invalid.
+    """
+    if not (pattern or "").strip():
+        return [], "Empty regex pattern."
+    try:
+        rx = re.compile(pattern.strip(), flags)
+    except re.error as e:
+        return [], f"Invalid regex: {e}"
+    hits: list[int] = []
+    for i, text in enumerate(page_texts):
+        if rx.search(text or ""):
+            hits.append(i)
+    return hits, None
 
 
 def build_ranges_from_starts(starts: list[int], total_pages: int) -> list[tuple[int, int]]:
